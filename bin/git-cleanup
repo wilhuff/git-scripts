@@ -1,0 +1,112 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+
+upstream="master"
+verbose=false
+dry_run=false
+git5=false
+while [[ $# -gt 0 ]]; do
+  arg="$1"
+  shift
+  case "$arg" in
+    -n) dry_run=true; verbose=true ;;
+    -v) verbose=true ;;
+    *) upstream="$arg" ;;
+  esac
+done
+
+function info() {
+  if $verbose; then
+    echo "$*" 1>&2
+  fi
+}
+
+function apply() {
+  info "$*"
+  if ! $dry_run; then
+    "$@"
+  fi
+}
+
+toplevel="$(git rev-parse --show-toplevel)"
+github=true
+git5=false
+if [[ -f "$toplevel/.git/git5version" ]]; then
+  github=false
+  git5=true
+
+elif [[ -d "$toplevel/google3" ]]; then
+  github=false
+fi
+
+if [[ "$git5" == false && "$github" == false ]]; then
+  echo "Couldn't figure out what kind of repository this was" 1>&2
+  exit 2
+fi
+
+upstream_ref=$(git rev-parse "$upstream")
+for branch in $(git for-each-ref --format '%(refname:short)' refs/heads); do
+  if [[ "$branch" = "$upstream" ]]; then
+    info "$branch: skipping upstream tracking branch"
+    continue
+  fi
+
+  # Branches that don't have remote tracking information aren't subject to
+  # pruning
+  if remote=$(git config --get "branch.$branch.remote"); then
+    : # okay; can't express the inverse condition
+  else
+    info "$branch: skipping local-only branch"
+    continue
+  fi
+
+  if [[ "$branch" =~ wilhuff/.* ]]; then
+    : # okay; can't express inverse regex match
+  else
+    info "$branch: skipping non-personal branch"
+    continue
+  fi
+
+  branch_ref=$(git rev-parse "$branch")
+  base_ref=$(git merge-base $branch_ref $upstream_ref)
+
+  # get the basename of the remote ref
+  merge=$(git config --get "branch.$branch.merge")
+  merge="${merge#refs/heads/}"
+  remote_branch="remotes/$remote/$merge"
+
+  if [[ "$git5" == true ]]; then
+    # In git5, commits end up merged into master so the branch will appear
+    # merged. To clean up we need to delete the remote.
+
+    # If the merge base of upstream and this branch is this branch then this
+    # branch has been merged into the upstream.
+    if [[ "$base_ref" != "$branch_ref" ]]; then
+      info "$branch: skipping unmerged branch"
+      continue
+    fi
+
+    info "$branch: has been merged; cleaning up ..."
+
+    if remote_ref=$(git rev-parse "$remote_branch" 2> /dev/null); then
+      info "$branch: deleting remote tracking branch $remote/$merge"
+      apply git push --delete $remote $merge
+    fi
+
+  elif [[ "$github" == true ]]; then
+    # On github, commits are merged via the UI and the remotes are deleted
+    # there.
+    if remote_ref=$(git rev-parse "$remote_branch" 2> /dev/null); then
+      info "$branch: remote branch $remote/$merge still exists"
+      continue
+    fi
+
+  fi
+
+  info "$branch: has been merged; cleaning up ..."
+
+  info "$branch: deleting local branch"
+  apply git branch -D "$branch"
+done
