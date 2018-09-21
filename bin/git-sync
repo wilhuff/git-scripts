@@ -1,0 +1,35 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+
+upstream="master"
+verbose=false
+dry_run=false
+while [[ $# -gt 0 ]]; do
+  arg="$1"
+  shift
+  case "$arg" in
+    -n) dry_run=true ;;
+    -v) verbose=true ;;
+    *) upstream="$arg" ;;
+  esac
+done
+
+# Fetching with --prune will remove remote tracking branches that were deleted
+# upstream. If the remote tracking branch for this feature branch wasn't
+# deleted, we'll delete it ourselves later.
+git checkout "$upstream"
+if [[ -f "$(git rev-parse --show-toplevel)/.git/git5version" ]]; then
+  git5 sync
+else
+  git pull --prune
+
+  cleanup=(git cleanup)
+  if $dry_run; then
+    cleanup+=(-n)
+  elif $verbose; then
+    cleanup+=(-v)
+  fi
+  "${cleanup[@]}"
+fi
