@@ -1,0 +1,50 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+
+github_user=wilhuff
+
+branch=$(git current-branch)
+
+toplevel="$(git rev-parse --show-toplevel)"
+github=true
+git5=false
+if [[ -f "$toplevel/.git/git5version" ]]; then
+  github=false
+  git5=true
+
+elif [[ -d "$toplevel/google3" ]]; then
+  github=false
+fi
+
+case "$branch" in
+  master)
+    echo "error: Cannot export the branch '$branch'." 1>&2
+    exit 1
+    ;;
+
+  tip | *-tip)
+    echo "error: Cowardly refusing to export a tip branch '$branch'." 1>&2
+    exit 1
+    ;;
+
+  "$github_user"/*)
+    # previously exported branch; nothing to do
+    ;;
+
+  *)
+    if [[ "$github" == true ]]; then
+      git branch -m "$branch" "$github_user/$branch"
+      branch="$github_user/$branch"
+    fi
+    ;;
+
+esac
+
+if [[ "$git5" == true ]]; then
+  git5 export "$@"
+
+else
+  git push -u "$@" origin "$branch"
+fi
