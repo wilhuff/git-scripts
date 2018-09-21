@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Output the current branch on stdout
+
+# The output of git branch should look like:
+#   feature1
+# * feature2
+#   master
+#
+# Indicating that of the three available branches, feature2 is current.
+git branch --no-color 2> /dev/null \
+    | sed '/^[^*]/d; s/^\* //'
